@@ -10,7 +10,7 @@ module Spree::Conekta
 
     def create
       PaymentNotificationHandler.new(params).perform_action if params['type'] == 'charge.paid'
-      render nothing: true, status: 200
+      head :ok, content_type: "text/html"
     end
   end
 end
