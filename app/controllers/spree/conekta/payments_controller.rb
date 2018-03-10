@@ -9,7 +9,7 @@ module Spree::Conekta
     end
 
     def create
-      PaymentNotificationHandler.new(params).perform_action if params['type'] == 'charge.paid'
+      PaymentNotificationHandler.new(params).perform_action if params['type'] == 'order.paid'
       head :ok, content_type: "text/html"
     end
   end
