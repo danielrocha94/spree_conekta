@@ -17,11 +17,16 @@ module Spree::Conekta
       @options       = options
       @auth_token    = options[:auth_token]
       @source_method = payment_processor(options[:source_method])
+      @order = nil
+      Conekta.api_key = auth_token
     end
 
     def authorize(amount, method_params, gateway_options = {})
+      @order = Spree::Order.find_by_number(gateway_options[:order_id].split('-').first)
       common = build_common(amount, gateway_options)
-      commit common, method_params, gateway_options.merge({type: @options[:source_method]})
+      result = commit common, method_params, gateway_options.merge({type: @options[:source_method]})
+      @order.create_conekta_charge_details_from_response(result.params["charges"]) if result.success?
+      result
     end
 
     alias_method :purchase, :authorize
@@ -54,17 +59,48 @@ module Spree::Conekta
     end
 
     def build_common(amount, gateway_params)
-      if source_method == Spree::Conekta::PaymentSource::Cash && gateway_params[:currency] != 'MXN'
-        return build_common_to_cash(amount, gateway_params) 
+      if Conekta.api_version == "2.0.0"
+        if source_method == Spree::Conekta::PaymentSource::Cash && gateway_params[:currency] != 'MXN'
+          return build_common_to_cash(amount, gateway_params)
+        else
+          {
+            line_items:       line_items(gateway_params),
+            id:               gateway_params[:order_id],
+            livemode:         !@options[:test_mode],
+            object:           "order",
+            amount:           amount,
+            payment_status:   "pending_payment",
+            currency:         gateway_params[:currency],
+            shipping_lines:   [shipment(gateway_params)],
+            shipping_contact: shipping_contact(gateway_params),
+            customer_info:    customer_info(gateway_params),
+            created_at:       @order.created_at,
+            updated_at:       @order.updated_at,
+            charges:          build_charge(amount, gateway_params)
+          }
+        end
       else
-        {
-          'amount'               => amount,
-          'reference_id'         => gateway_params[:order_id],
-          'currency'             => gateway_params[:currency],
-          'description'          => gateway_params[:order_id],
-          'details'              => details(gateway_params)
-        }
+        if source_method == Spree::Conekta::PaymentSource::Cash && gateway_params[:currency] != 'MXN'
+          return build_common_to_cash(amount, gateway_params)
+        else
+          {
+            'amount'               => amount,
+            'reference_id'         => gateway_params[:order_id],
+            'currency'             => gateway_params[:currency],
+            'description'          => gateway_params[:order_id],
+            'details'              => details(gateway_params)
+          }
+        end
       end
+    end
+
+    def customer_info(gateway_params)
+      {
+        'object'          => "customer_info",
+        'name'            => gateway_params[:billing_address][:name],
+        'email'           => gateway_params[:email],
+        'phone'           => gateway_params[:billing_address][:phone],
+      }
     end
 
     def details(gateway_params)
@@ -85,7 +121,7 @@ module Spree::Conekta
         'city'    => gateway_params[:shipping_address][:city],
         'state'   => gateway_params[:shipping_address][:state],
         'country' => gateway_params[:shipping_address][:country],
-        'zip'     => gateway_params[:shipping_address][:zip]
+        'postal_code'     => gateway_params[:shipping_address][:zip]
       }
     end
 
@@ -101,25 +137,71 @@ module Spree::Conekta
       }
     end
 
+    def build_charge(amount, gateway_params)
+      [{
+        object: "charge",
+        livemode:       !@options[:test_mode],
+        created_at:     @order.created_at,
+        currency:       gateway_params[:currency],
+        status:         "pending_payment",
+        amount:         amount,
+        fee:            gateway_params[:tax],
+        customer_id:    "",
+        order_id:       "",
+        payment_method: oxxo_payment_method(gateway_params)
+      }]
+    end
+
+    def oxxo_payment_method(gateway_params)
+      {
+        service_name:   "OxxoPay",
+        object:         "cash_payment",
+        type:           "oxxo_cash",
+        expires_at:     (@order.created_at + 30.days).to_i,
+        store_name:     "OXXO",
+        reference:      gateway_params[:order_id]
+      }
+    end
+
     def line_items(gateway_params)
-      order = Spree::Order.find_by_number(gateway_params[:order_id].split('-').first)
-      order.line_items.map(&:to_conekta)
+      #order = Spree::Order.find_by_number(gateway_params[:order_id].split('-').first)
+      #data:       @order.line_items.map(&:to_conekta)
+      #if Conekta.api_version == "2.0.0"
+      #  line_item = @order.line_items[0]
+      #  [{
+      #    object:     "list",
+      #    total:       @order.line_items.count,
+      #    unit_price:  line_item.price.to_i * 100,
+      #    quantity:    line_item.quantity,
+      #    type:        "physical",
+      #    object:      "line_item",
+      #  }]
+      #else
+      @order.line_items.map(&:to_conekta)
+      #end
+
     end
 
     def shipment(gateway_params)
-      order = Spree::Order.find_by_number(gateway_params[:order_id].split('-').first)
-      shipment = order.shipments[0]
+      @order = Spree::Order.find_by_number(gateway_params[:order_id].split('-').first)
+      shipment = @order.shipments[0]
       carrier = (shipment.present? ? shipment.shipping_method.name : "other")
       traking_id = (shipment.present? ? shipment.tracking : nil)
       {
-        'price'   => gateway_params[:shipping],
-        'address' => shipping_address(gateway_params),
-        'service'     => "other",
-        'carrier'     => carrier,
-        'tracking_id'  => traking_id
+        :amount       => gateway_params[:shipping].to_i * 100,
+        :address      => shipping_address(gateway_params),
+        :service      => "other",
+        :carrier      => carrier,
+        :tracking_id  => traking_id
       }
     end
-    
+
+    def shipping_contact(gateway_params)
+      {
+        :address      => shipping_address(gateway_params),
+      }
+    end
+
     def build_common_to_cash(amount, gateway_params)
       amount_exchanged = Spree::Conekta::Exchange.new(amount, gateway_params[:currency]).amount_exchanged
       {
