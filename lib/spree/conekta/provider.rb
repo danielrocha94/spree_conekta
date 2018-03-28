@@ -139,7 +139,7 @@ module Spree::Conekta
 
     def build_charge(amount, gateway_params)
       [{
-        object: "charge",
+        object:         "charge",
         livemode:       !@options[:test_mode],
         created_at:     @order.created_at,
         currency:       gateway_params[:currency],
@@ -148,7 +148,9 @@ module Spree::Conekta
         fee:            gateway_params[:tax],
         customer_id:    "",
         order_id:       "",
-        payment_method: oxxo_payment_method(gateway_params)
+        payment_method: options[:source_method] == "oxxo" ?
+        oxxo_payment_method(gateway_params) :
+        card_payment_method(gateway_params)
       }]
     end
 
@@ -160,6 +162,13 @@ module Spree::Conekta
         expires_at:     (@order.created_at + 30.days).to_i,
         store_name:     "OXXO",
         reference:      gateway_params[:order_id]
+      }
+    end
+
+    def card_payment_method(gateway_params)
+      {
+        service_name:   "card",
+        type:           "card",
       }
     end
 
