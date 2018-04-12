@@ -23,6 +23,11 @@ module Spree::Conekta
 
     def authorize(amount, method_params, gateway_options = {})
       @order = Spree::Order.find_by_number(gateway_options[:order_id].split('-').first)
+      discount_total = 0
+      if @order.payments.store_credits.valid.any?
+        discount_total = @order.payments.store_credits.valid.last.amount * 100
+      end
+      amount = (@order.amount * 100 - discount_total).to_i
       common = build_common(amount, gateway_options)
       result = commit common, method_params, gateway_options.merge({type: @options[:source_method]})
       @order.create_conekta_charge_details_from_response(result.params["charges"]) if result.success?
@@ -64,7 +69,7 @@ module Spree::Conekta
           return build_common_to_cash(amount, gateway_params)
         else
           {
-            line_items:       line_items(gateway_params),
+            line_items:       line_items(gateway_params, amount),
             id:               gateway_params[:order_id],
             livemode:         !@options[:test_mode],
             object:           "order",
@@ -109,7 +114,7 @@ module Spree::Conekta
         'email'           => gateway_params[:email],
         'phone'           => gateway_params[:billing_address][:phone],
         'billing_address' => billing_address(gateway_params),
-        'line_items'      => line_items(gateway_params),
+        'line_items'      => line_items(gateway_params, amount),
         'shipment'        => shipment(gateway_params)
       }
     end
@@ -172,22 +177,14 @@ module Spree::Conekta
       }
     end
 
-    def line_items(gateway_params)
-      #order = Spree::Order.find_by_number(gateway_params[:order_id].split('-').first)
-      #data:       @order.line_items.map(&:to_conekta)
-      #if Conekta.api_version == "2.0.0"
-      #  line_item = @order.line_items[0]
-      #  [{
-      #    object:     "list",
-      #    total:       @order.line_items.count,
-      #    unit_price:  line_item.price.to_i * 100,
-      #    quantity:    line_item.quantity,
-      #    type:        "physical",
-      #    object:      "line_item",
-      #  }]
-      #else
-      @order.line_items.map(&:to_conekta)
-      #end
+    def line_items(gateway_params, amount)
+      line_items = @order.line_items.map(&:to_conekta)
+      real_total = line_items.inject(0){|sum, item| item[:unit_price]}
+      unless amount == real_total
+        items_count = @order.line_items.inject(0) {|sum, item| sum += item[:quantity]}
+        line_items.each{ |item| item[:unit_price] = ( amount / items_count).ceil.to_i}
+      end
+      line_items
 
     end
 

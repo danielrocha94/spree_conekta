@@ -9,7 +9,12 @@
       </div>
       <div class="opps-ammount">
         <h3>Monto a pagar</h3>
-        <h2>$ <%=@order.total.to_f %> <sup><%=@order_details["currency"]%></sup></h2>
+        <% discount =
+            @order.payments.store_credits.any? ?
+            @order.payments.store_credits.last.amount :
+            0
+        %>
+        <h2>$ <%= @order.total.to_f - discount %> <sup><%=@order_details["currency"]%></sup></h2>
         <p>OXXO cobrará una comisión adicional al momento de realizar el pago.</p>
       </div>
     </div>

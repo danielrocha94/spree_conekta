@@ -3,7 +3,9 @@
     <h2 class='payment-title' style="text-align: center;">Tu ficha de pago</h2>
   </header>
   <div class='order-body'>
-    <%= render partial: @order.last_payment_source %>
+    <% @order.all_non_credit_payments.each do |payment| %>
+      <%= render partial: @order.last_payment_source, locals: { payment: payment } %>
+    <% end %>
   </div>
   <footer class='order-footer'>
     <%= button_tag 'Imprimir formulario de pago', id: 'print-payment', class: 'icon-print'  %>
