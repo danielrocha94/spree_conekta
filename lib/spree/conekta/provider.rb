@@ -149,7 +149,7 @@ module Spree::Conekta
         created_at:     @order.created_at,
         currency:       gateway_params[:currency],
         status:         "pending_payment",
-        amount:         amount,
+        amount:         amount + gateway_params[:shipping].to_i,
         fee:            gateway_params[:tax],
         customer_id:    "",
         order_id:       "",
@@ -194,7 +194,7 @@ module Spree::Conekta
       carrier = (shipment.present? ? shipment.shipping_method.name : "other")
       traking_id = (shipment.present? ? shipment.tracking : nil)
       {
-        :amount       => gateway_params[:shipping].to_i * 100,
+        :amount       => gateway_params[:shipping].to_i,
         :address      => shipping_address(gateway_params),
         :service      => "other",
         :carrier      => carrier,

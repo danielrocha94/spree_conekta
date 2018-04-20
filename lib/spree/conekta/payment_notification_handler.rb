@@ -13,7 +13,8 @@ module Spree
         @params = params
         @delay  = delay
         @action = ACTIONS[params['type']]
-        @order  = params['data']['object']['id'].split('-').last
+        @order  = params['data'] ? params['data']['object']['id'].split('-').last :
+                                   params['id']
       end
 
       def perform_action
