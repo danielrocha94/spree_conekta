@@ -246,7 +246,7 @@
               if (input) {
                 attribute_name = input.getAttribute('data-conekta');
                 if (attribute_name) {
-                  if (input.tagName === 'SELECT') {
+                  if (input.tagName === 'INPUT') {
                     val = input.value;
                   } else {
                     val = input.getAttribute('value') || input.innerHTML || input.value;
